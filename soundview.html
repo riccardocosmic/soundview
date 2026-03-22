@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectrum Analyzer R7</title>
+  <style>
+    :root {
+      --bg: #0f1220;
+      --panel: #171b2e;
+      --panel2: #1f2540;
+      --text: #e8ecff;
+      --muted: #aab3d9;
+      --accent: #66d9ef;
+      --good: #7CFC00;
+      --warn: #ffd166;
+      --danger: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    p.desc {
+      color: var(--muted);
+      margin: 0 0 16px;
+      line-height: 1.4;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.25);
+    }
+    .controls label {
+      display: block;
+      font-size: 0.92rem;
+      margin: 10px 0 6px;
+      color: var(--muted);
+    }
+    .controls input, .controls select, .controls button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #2f3866;
+      background: var(--panel2);
+      color: var(--text);
+    }
+    .controls button { cursor: pointer; font-weight: 700; margin-top: 10px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .check input { width: auto; margin: 0; }
+    .status {
+      margin-top: 12px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      color: var(--muted);
+      background: #101524;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    .metric { display: flex; justify-content: space-between; margin: 6px 0; gap: 12px; }
+    canvas {
+      width: 100%;
+      display: block;
+      background: #0b0f1b;
+      border-radius: 12px;
+      border: 1px solid #28304f;
+      touch-action: none;
+    }
+    .chart-title { margin: 0 0 8px; color: var(--muted); font-size: 0.95rem; }
+    .stack { display: grid; gap: 16px; }
+    .hint {
+      font-size: 0.88rem;
+      color: var(--warn);
+      margin-top: 10px;
+      line-height: 1.35;
+    }
+    @media (max-width: 850px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Analizzatore spettro piezo USB-C R7</h1>
+    <p class="desc">Spettro FFT in dB, waterfall, peak hold, scala logaritmica opzionale, cursore frequenza, autoscala opzionale, export CSV spettro, log temporale CSV e waterfall CSV temporale con bande selezionabili.</p>
+
+    <div class="grid">
+      <div class="panel controls">
+        <label for="deviceSelect">Dispositivo audio</label>
+        <select id="deviceSelect"></select>
+
+        <div class="row">
+          <div>
+            <label for="fftSize">FFT size</label>
+            <select id="fftSize">
+              <option>512</option>
+              <option>1024</option>
+              <option selected>2048</option>
+              <option>4096</option>
+              <option>8192</option>
+            </select>
+          </div>
+          <div>
+            <label for="maxFreq">Freq max (Hz)</label>
+            <input id="maxFreq" type="number" min="100" max="24000" step="100" value="5000" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="smoothing">Smoothing</label>
+            <input id="smoothing" type="range" min="0" max="95" value="65" />
+          </div>
+          <div>
+            <label for="gain">Gain display</label>
+            <input id="gain" type="range" min="1" max="8" step="0.1" value="2.5" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="minLogFreq">Freq min log (Hz)</label>
+            <input id="minLogFreq" type="number" min="1" max="5000" step="1" value="20" />
+          </div>
+          <div>
+            <label for="waterfallSpeed">Waterfall speed</label>
+            <input id="waterfallSpeed" type="range" min="1" max="4" step="1" value="1" />
+          </div>
+        </div>
+
+        <label class="check"><input id="logScale" type="checkbox" /> Scala X logaritmica</label>
+        <label class="check"><input id="peakHoldEnabled" type="checkbox" checked /> Peak hold</label>
+        <label class="check"><input id="autoScaleDb" type="checkbox" checked /> Autoscala Y dB</label>
+
+        <div class="row3">
+          <button id="startBtn">Avvia</button>
+          <button id="holdBtn">Hold</button>
+          <button id="stopBtn">Stop</button>
+        </div>
+        <div class="row">
+          <button id="resetPeakBtn">Reset peak hold</button>
+          <button id="exportCsvBtn">Export CSV spettro</button>
+        </div>
+        <div class="row">
+          <button id="toggleTimeLogBtn">Avvia log temporale</button>
+          <button id="exportTimeCsvBtn">Export CSV temporale</button>
+        </div>
+        <div class="row">
+          <div>
+            <label for="timeLogInterval">Campionamento log (ms)</label>
+            <input id="timeLogInterval" type="number" min="50" max="10000" step="50" value="250" />
+          </div>
+          <div>
+            <label for="timeLogMode">Dati temporali</label>
+            <select id="timeLogMode">
+              <option value="peak" selected>Picco dominante</option>
+              <option value="cursor">Frequenza cursore</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="waterfallBands">Bande waterfall CSV</label>
+            <select id="waterfallBands">
+              <option>32</option>
+              <option>64</option>
+              <option selected>128</option>
+              <option>256</option>
+              <option>512</option>
+            </select>
+          </div>
+          <div>
+            <label for="waterfallCsvNote">Waterfall CSV</label>
+            <input id="waterfallCsvNote" type="text" value="usa lo stesso campionamento del log temporale" readonly />
+          </div>
+        </div>
+        <div class="row">
+          <button id="exportWaterfallCsvBtn">Export waterfall CSV</button>
+          <button id="clearWaterfallLogBtn">Azzera waterfall log</button>
+        </div>
+        <div class="row">
+          <button id="clearTimeLogBtn">Azzera log temporale</button>
+          <div></div>
+        </div>
+
+        <div class="status">
+          <div class="metric"><span>Stato</span><strong id="statusText">Pronto</strong></div>
+          <div class="metric"><span>Sample rate</span><strong id="sampleRate">-</strong></div>
+          <div class="metric"><span>Picco live</span><strong id="peakFreq">-</strong></div>
+          <div class="metric"><span>Picco peak hold</span><strong id="peakHoldFreq">-</strong></div>
+          <div class="metric"><span>Livello</span><strong id="level">-</strong></div>
+          <div class="metric"><span>Log temporale</span><strong id="timeLogInfo">0 campioni</strong></div>
+          <div class="metric"><span>Waterfall log</span><strong id="waterfallLogInfo">0 righe | 128 bande</strong></div>
+          <div class="metric"><span>Cursore</span><strong id="cursorInfo">-</strong></div>
+        </div>
+
+        <div class="hint">
+          Nota: su molti telefoni l'accesso al microfono da HTML funziona meglio in HTTPS o localhost. Un piezo può richiedere preamplificatore o adattamento d'impedenza.
+        </div>
+      </div>
+
+      <div class="stack">
+        <div class="panel">
+          <div class="chart-title">Spettro</div>
+          <canvas id="spectrum" width="920" height="340"></canvas>
+        </div>
+        <div class="panel">
+          <div class="chart-title">Waterfall spettro</div>
+          <canvas id="waterfall" width="920" height="260"></canvas>
+        </div>
+        <div class="panel">
+          <div class="chart-title">Forma d'onda</div>
+          <canvas id="waveform" width="920" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const deviceSelect = document.getElementById('deviceSelect');
+    const fftSizeEl = document.getElementById('fftSize');
+    const maxFreqEl = document.getElementById('maxFreq');
+    const smoothingEl = document.getElementById('smoothing');
+    const gainEl = document.getElementById('gain');
+    const minLogFreqEl = document.getElementById('minLogFreq');
+    const waterfallSpeedEl = document.getElementById('waterfallSpeed');
+    const logScaleEl = document.getElementById('logScale');
+    const peakHoldEnabledEl = document.getElementById('peakHoldEnabled');
+    const autoScaleDbEl = document.getElementById('autoScaleDb');
+    const startBtn = document.getElementById('startBtn');
+    const holdBtn = document.getElementById('holdBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const resetPeakBtn = document.getElementById('resetPeakBtn');
+    const exportCsvBtn = document.getElementById('exportCsvBtn');
+    const toggleTimeLogBtn = document.getElementById('toggleTimeLogBtn');
+    const exportTimeCsvBtn = document.getElementById('exportTimeCsvBtn');
+    const clearTimeLogBtn = document.getElementById('clearTimeLogBtn');
+    const exportWaterfallCsvBtn = document.getElementById('exportWaterfallCsvBtn');
+    const clearWaterfallLogBtn = document.getElementById('clearWaterfallLogBtn');
+    const timeLogIntervalEl = document.getElementById('timeLogInterval');
+    const timeLogModeEl = document.getElementById('timeLogMode');
+    const waterfallBandsEl = document.getElementById('waterfallBands');
+    const waterfallLogInfoEl = document.getElementById('waterfallLogInfo');
+    const statusText = document.getElementById('statusText');
+    const sampleRateEl = document.getElementById('sampleRate');
+    const peakFreqEl = document.getElementById('peakFreq');
+    const peakHoldFreqEl = document.getElementById('peakHoldFreq');
+    const levelEl = document.getElementById('level');
+    const timeLogInfoEl = document.getElementById('timeLogInfo');
+    const cursorInfoEl = document.getElementById('cursorInfo');
+    const spectrumCanvas = document.getElementById('spectrum');
+    const waveformCanvas = document.getElementById('waveform');
+    const waterfallCanvas = document.getElementById('waterfall');
+    const sctx = spectrumCanvas.getContext('2d');
+    const wctx = waveformCanvas.getContext('2d');
+    const wfctx = waterfallCanvas.getContext('2d');
+
+    let audioCtx = null;
+    let analyser = null;
+    let stream = null;
+    let source = null;
+    let freqData = null;
+    let freqDataDb = null;
+    let timeData = null;
+    let animId = null;
+    let hold = false;
+    let waterfallImage = null;
+    let liveSpectrum = [];
+    let peakHoldSpectrum = [];
+    let currentDbRange = { min: -120, max: 0 };
+    let lastFreqAxis = [];
+    let cursorState = { active: false, x: 0, freq: null, amp: null };
+    let lastPeakIndex = 0;
+    let lastPeakHoldIndex = 0;
+    let timeLogEnabled = false;
+    let timeLogRows = [];
+    let lastTimeLogMs = 0;
+    let waterfallLogRows = [];
+    let waterfallLogFreqs = [];
+    let lastWaterfallLogMs = 0;
+    let waterfallLogSignature = '';
+
+    async function listDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        deviceSelect.innerHTML = '';
+        if (!inputs.length) {
+          const opt = document.createElement('option');
+          opt.textContent = 'Nessun input rilevato';
+          opt.value = '';
+          deviceSelect.appendChild(opt);
+          return;
+        }
+        inputs.forEach((d, i) => {
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Ingresso audio ${i + 1}`;
+          deviceSelect.appendChild(opt);
+        });
+      } catch (e) {
+        statusText.textContent = 'Errore dispositivi';
+      }
+    }
+
+    function updateTimeLogInfo() {
+      timeLogInfoEl.textContent = `${timeLogRows.length} campioni${timeLogEnabled ? ' | REC' : ''}`;
+    }
+
+    function updateWaterfallLogInfo() {
+      const bands = parseInt(waterfallBandsEl.value || '128', 10);
+      waterfallLogInfoEl.textContent = `${waterfallLogRows.length} righe | ${bands} bande`;
+    }
+
+    function resetPeakHold() {
+      peakHoldSpectrum = new Array(liveSpectrum.length || 0).fill(-140);
+      lastPeakHoldIndex = 0;
+      peakHoldFreqEl.textContent = '-';
+    }
+
+    function stopAudio() {
+      if (animId) cancelAnimationFrame(animId);
+      animId = null;
+      if (source) { try { source.disconnect(); } catch (_) {} }
+      source = null;
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      if (audioCtx) {
+        audioCtx.close();
+        audioCtx = null;
+      }
+      analyser = null;
+      waterfallImage = null;
+      liveSpectrum = [];
+      resetPeakHold();
+      wfctx.clearRect(0, 0, waterfallCanvas.width, waterfallCanvas.height);
+      lastTimeLogMs = 0;
+      lastWaterfallLogMs = 0;
+      statusText.textContent = 'Fermato';
+      updateTimeLogInfo();
+      updateWaterfallLogInfo();
+      sampleRateEl.textContent = '-';
+    }
+
+    async function startAudio() {
+      stopAudio();
+      try {
+        const constraints = {
+          audio: {
+            deviceId: deviceSelect.value ? { exact: deviceSelect.value } : undefined,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        source = audioCtx.createMediaStreamSource(stream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = parseInt(fftSizeEl.value, 10);
+        analyser.smoothingTimeConstant = parseInt(smoothingEl.value, 10) / 100;
+        source.connect(analyser);
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+        freqDataDb = new Float32Array(analyser.frequencyBinCount);
+        timeData = new Uint8Array(analyser.fftSize);
+        liveSpectrum = new Array(analyser.frequencyBinCount).fill(-120);
+        resetPeakHold();
+        statusText.textContent = 'Acquisizione attiva';
+        sampleRateEl.textContent = audioCtx.sampleRate + ' Hz';
+        draw();
+        updateTimeLogInfo();
+        updateWaterfallLogInfo();
+      } catch (e) {
+        console.error(e);
+        statusText.textContent = 'Accesso microfono negato/non disponibile';
+      }
+    }
+
+    function drawGrid(ctx, canvas, yLines = 4) {
+      ctx.strokeStyle = '#1e2744';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= yLines; i++) {
+        const y = (canvas.height / yLines) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    function drawYAxis(ctx, canvas, minVal, maxVal, yLines = 4, unit = '') {
+      const h = canvas.height;
+      ctx.fillStyle = '#aab3d9';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'left';
+      for (let i = 0; i <= yLines; i++) {
+        const y = (h / yLines) * i;
+        const value = maxVal - ((maxVal - minVal) * i / yLines);
+        const label = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+        const py = Math.min(h - 6, Math.max(12, y + (i === 0 ? 12 : (i === yLines ? -4 : 4))));
+        ctx.fillText(label + unit, 8, py);
+      }
+      ctx.textAlign = 'left';
+    }
+
+    function formatCsvNumber(value, decimals = 3) {
+      if (value === '' || value === null || value === undefined || Number.isNaN(Number(value))) return '';
+      return Number(value).toFixed(decimals).replace('.', ',');
+    }
+
+    function formatFreq(f) {
+      if (!isFinite(f)) return '-';
+      return f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${f.toFixed(1)} Hz`;
+    }
+
+    function getFreqFromX(x, maxFreq) {
+      const w = spectrumCanvas.width;
+      const logScale = logScaleEl.checked;
+      const minLogFreq = Math.max(1, Math.min(parseFloat(minLogFreqEl.value || '20'), maxFreq - 1));
+      const clampedX = Math.max(0, Math.min(w, x));
+      const t = clampedX / w;
+      if (!logScale) return t * maxFreq;
+      const ratio = maxFreq / minLogFreq;
+      return minLogFreq * Math.pow(ratio, t);
+    }
+
+    function getXFromFreq(freq, maxFreq, canvasWidth) {
+      const logScale = logScaleEl.checked;
+      const minLogFreq = Math.max(1, Math.min(parseFloat(minLogFreqEl.value || '20'), maxFreq - 1));
+      if (!logScale) return (freq / maxFreq) * canvasWidth;
+      const safeFreq = Math.max(minLogFreq, Math.min(maxFreq, freq));
+      const ratio = maxFreq / minLogFreq;
+      return (Math.log(safeFreq / minLogFreq) / Math.log(ratio)) * canvasWidth;
+    }
+
+    function buildDisplayBins(maxFreq) {
+      const nyquist = audioCtx.sampleRate / 2;
+      const maxBin = Math.max(8, Math.floor((maxFreq / nyquist) * freqDataDb.length));
+      const arr = [];
+      for (let i = 0; i < maxBin; i++) {
+        const freq = i * nyquist / freqDataDb.length;
+        arr.push({ index: i, freq, db: freqDataDb[i] });
+      }
+      return arr;
+    }
+
+    function clampDb(v) {
+      if (!isFinite(v)) return -120;
+      return Math.max(-140, Math.min(20, v));
+    }
+
+    function computeDbRange(displayBins, peakBins = null) {
+      let minDb = Infinity;
+      let maxDb = -Infinity;
+      for (const b of displayBins) {
+        if (isFinite(b.db)) {
+          minDb = Math.min(minDb, b.db);
+          maxDb = Math.max(maxDb, b.db);
+        }
+      }
+      if (peakBins && peakBins.length) {
+        for (const v of peakBins) {
+          if (isFinite(v)) {
+            minDb = Math.min(minDb, v);
+            maxDb = Math.max(maxDb, v);
+          }
+        }
+      }
+      if (!isFinite(minDb) || !isFinite(maxDb)) return { min: -120, max: 0 };
+      if (autoScaleDbEl.checked) {
+        minDb = Math.floor((minDb - 6) / 5) * 5;
+        maxDb = Math.ceil((maxDb + 3) / 5) * 5;
+        if (maxDb - minDb < 20) minDb = maxDb - 20;
+      } else {
+        minDb = -120;
+        maxDb = 0;
+      }
+      return { min: clampDb(minDb), max: clampDb(maxDb) };
+    }
+
+    function dbToY(db, h, range) {
+      const minDb = range.min;
+      const maxDb = range.max;
+      const safe = Math.max(minDb, Math.min(maxDb, db));
+      const norm = (safe - minDb) / Math.max(1e-9, (maxDb - minDb));
+      return h - norm * h;
+    }
+
+    function dbToNorm(db, range) {
+      const minDb = range.min;
+      const maxDb = range.max;
+      return Math.max(0, Math.min(1, (db - minDb) / Math.max(1e-9, (maxDb - minDb))));
+    }
+
+    function drawFreqAxis(ctx, canvas, maxFreq, divisions = 10) {
+      const w = canvas.width;
+      const h = canvas.height;
+      const logScale = logScaleEl.checked;
+      const minLogFreq = Math.max(1, Math.min(parseFloat(minLogFreqEl.value || '20'), maxFreq - 1));
+      ctx.strokeStyle = '#30406f';
+      ctx.fillStyle = '#aab3d9';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      lastFreqAxis = [];
+      for (let i = 0; i <= divisions; i++) {
+        let x, f;
+        if (!logScale) {
+          x = (i / divisions) * w;
+          f = (i / divisions) * maxFreq;
+        } else {
+          const t = i / divisions;
+          const ratio = maxFreq / minLogFreq;
+          f = minLogFreq * Math.pow(ratio, t);
+          x = getXFromFreq(f, maxFreq, w);
+        }
+        lastFreqAxis.push({ x, f });
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+        const label = f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2) + ' kHz' : Math.round(f) + ' Hz';
+        ctx.fillText(label, x, h - 8);
+      }
+      ctx.textAlign = 'left';
+    }
+
+    function drawWaterfall(displayBins, maxFreq, range) {
+      const w = waterfallCanvas.width;
+      const h = waterfallCanvas.height;
+      if (!waterfallImage || waterfallImage.width !== w || waterfallImage.height !== h) {
+        wfctx.fillStyle = '#000';
+        wfctx.fillRect(0, 0, w, h);
+        waterfallImage = wfctx.getImageData(0, 0, w, h);
+      }
+      const data = waterfallImage.data;
+      const rowBytes = w * 4;
+      const speed = parseInt(waterfallSpeedEl.value || '1', 10);
+      for (let s = 0; s < speed; s++) {
+        data.copyWithin(0, rowBytes);
+        for (let x = 0; x < w; x++) {
+          const freq = getFreqFromX(x, maxFreq);
+          const idxBin = findNearestBinByFreq(displayBins, freq);
+          const v = dbToNorm(displayBins[idxBin]?.db ?? range.min, range);
+          const color = colorMap(v);
+          const idx = (h - 1) * rowBytes + x * 4;
+          data[idx] = color[0];
+          data[idx + 1] = color[1];
+          data[idx + 2] = color[2];
+          data[idx + 3] = 255;
+        }
+      }
+      wfctx.putImageData(waterfallImage, 0, 0);
+      drawGrid(wfctx, waterfallCanvas, 4);
+      drawFreqAxis(wfctx, waterfallCanvas, maxFreq, 10);
+    }
+
+    function colorMap(v) {
+      const t = Math.max(0, Math.min(1, v));
+      let r, g, b;
+      if (t < 0.25) {
+        const k = t / 0.25;
+        r = 0; g = Math.round(80 * k); b = Math.round(60 + 195 * k);
+      } else if (t < 0.5) {
+        const k = (t - 0.25) / 0.25;
+        r = 0; g = Math.round(80 + 175 * k); b = Math.round(255 - 105 * k);
+      } else if (t < 0.75) {
+        const k = (t - 0.5) / 0.25;
+        r = Math.round(255 * k); g = 255; b = Math.round(150 * (1 - k));
+      } else {
+        const k = (t - 0.75) / 0.25;
+        r = 255; g = Math.round(255 - 255 * k); b = 0;
+      }
+      return [r, g, b];
+    }
+
+    function findNearestBinByFreq(displayBins, targetFreq) {
+      if (!displayBins.length) return 0;
+      let best = 0;
+      let bestDiff = Infinity;
+      for (let i = 0; i < displayBins.length; i++) {
+        const diff = Math.abs(displayBins[i].freq - targetFreq);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    function updateCursorInfo(displayBins, maxFreq, range) {
+      if (!cursorState.active) {
+        cursorInfoEl.textContent = '-';
+        return;
+      }
+      const freq = getFreqFromX(cursorState.x, maxFreq);
+      const idxBin = findNearestBinByFreq(displayBins, freq);
+      const db = displayBins[idxBin]?.db ?? range.min;
+      cursorState.freq = displayBins[idxBin]?.freq ?? freq;
+      cursorState.amp = db;
+      cursorInfoEl.textContent = `${formatFreq(cursorState.freq)} | ${db.toFixed(1)} dB`;
+    }
+
+
+    function maybeStoreTimeLog(displayBins) {
+      if (!timeLogEnabled || !audioCtx || !displayBins.length) return;
+      const now = performance.now();
+      const intervalMs = Math.max(50, parseInt(timeLogIntervalEl.value || '250', 10));
+      if (now - lastTimeLogMs < intervalMs) return;
+      lastTimeLogMs = now;
+
+      const ts = new Date();
+      const elapsedMs = audioCtx.currentTime * 1000;
+      let targetIndex = lastPeakIndex;
+      let mode = timeLogModeEl.value || 'peak';
+      if (mode === 'cursor' && cursorState.active) {
+        targetIndex = findNearestBinByFreq(displayBins, cursorState.freq ?? getFreqFromX(cursorState.x, Math.min(parseFloat(maxFreqEl.value || '5000'), audioCtx.sampleRate / 2)));
+      }
+      const target = displayBins[Math.max(0, Math.min(displayBins.length - 1, targetIndex))];
+      const peak = displayBins[Math.max(0, Math.min(displayBins.length - 1, lastPeakIndex))];
+      const rmsLinear = timeData && timeData.length ? Math.sqrt(timeData.reduce((acc, v) => { const n = (v - 128) / 128; return acc + n * n; }, 0) / timeData.length) : 0;
+      const rmsDb = 20 * Math.log10(Math.max(1e-6, rmsLinear));
+      timeLogRows.push({
+        timestamp: ts.toISOString(),
+        elapsed_s: elapsedMs / 1000,
+        tracked_mode: mode === 'cursor' && cursorState.active ? 'cursor' : 'peak',
+        tracked_freq_hz: target?.freq ?? 0,
+        tracked_level_db: target?.db ?? -120,
+        peak_freq_hz: peak?.freq ?? 0,
+        peak_level_db: peak?.db ?? -120,
+        rms_db: rmsDb
+      });
+      updateTimeLogInfo();
+    }
+
+    function getWaterfallLogSignature(maxFreq) {
+      const bandCount = parseInt(waterfallBandsEl.value || '128', 10);
+      const minLogFreq = Math.max(1, Math.min(parseFloat(minLogFreqEl.value || '20'), maxFreq - 1));
+      return [bandCount, maxFreq.toFixed(6), logScaleEl.checked ? 'log' : 'lin', minLogFreq.toFixed(6)].join('|');
+    }
+
+    function buildWaterfallBandCenters(maxFreq, bandCount) {
+      const centers = [];
+      for (let i = 0; i < bandCount; i++) {
+        const x = ((i + 0.5) / bandCount) * spectrumCanvas.width;
+        centers.push(getFreqFromX(x, maxFreq));
+      }
+      return centers;
+    }
+
+    function clearWaterfallLog(silent = false) {
+      waterfallLogRows = [];
+      waterfallLogFreqs = [];
+      waterfallLogSignature = '';
+      lastWaterfallLogMs = 0;
+      updateWaterfallLogInfo();
+      if (!silent) statusText.textContent = 'Waterfall log azzerato';
+    }
+
+    function maybeStoreWaterfallLog(displayBins, maxFreq) {
+      if (!audioCtx || !displayBins.length) return;
+      const now = performance.now();
+      const intervalMs = Math.max(50, parseInt(timeLogIntervalEl.value || '250', 10));
+      if (now - lastWaterfallLogMs < intervalMs) return;
+      lastWaterfallLogMs = now;
+
+      const signature = getWaterfallLogSignature(maxFreq);
+      const bandCount = parseInt(waterfallBandsEl.value || '128', 10);
+      if (signature !== waterfallLogSignature || waterfallLogFreqs.length !== bandCount) {
+        waterfallLogSignature = signature;
+        waterfallLogFreqs = buildWaterfallBandCenters(maxFreq, bandCount);
+        waterfallLogRows = [];
+      }
+
+      const levels = waterfallLogFreqs.map(freq => {
+        const idx = findNearestBinByFreq(displayBins, freq);
+        return displayBins[idx]?.db ?? -120;
+      });
+
+      waterfallLogRows.push({
+        timestamp: new Date().toISOString(),
+        elapsed_s: audioCtx.currentTime,
+        levels
+      });
+      if (waterfallLogRows.length > 10000) waterfallLogRows.shift();
+      updateWaterfallLogInfo();
+    }
+
+    function drawSpectrum() {
+      analyser.getByteFrequencyData(freqData);
+      analyser.getFloatFrequencyData(freqDataDb);
+      const w = spectrumCanvas.width;
+      const h = spectrumCanvas.height;
+      const maxFreq = Math.min(parseFloat(maxFreqEl.value || '5000'), audioCtx.sampleRate / 2);
+      const gain = parseFloat(gainEl.value || '2.5');
+      const displayBins = buildDisplayBins(maxFreq);
+      liveSpectrum = displayBins.map(b => clampDb(b.db));
+
+      if (peakHoldEnabledEl.checked) {
+        if (peakHoldSpectrum.length !== liveSpectrum.length) peakHoldSpectrum = new Array(liveSpectrum.length).fill(0);
+        for (let i = 0; i < liveSpectrum.length; i++) {
+          peakHoldSpectrum[i] = Math.max((peakHoldSpectrum[i] ?? -140), liveSpectrum[i]);
+        }
+      }
+
+      sctx.clearRect(0, 0, w, h);
+      drawGrid(sctx, spectrumCanvas, 4);
+      currentDbRange = computeDbRange(displayBins, peakHoldEnabledEl.checked ? peakHoldSpectrum : null);
+      drawYAxis(sctx, spectrumCanvas, currentDbRange.min, currentDbRange.max, 4, ' dB');
+
+      let peakValue = -Infinity;
+      lastPeakIndex = 0;
+      for (let i = 0; i < displayBins.length; i++) {
+        if (displayBins[i].db > peakValue) {
+          peakValue = displayBins[i].db;
+          lastPeakIndex = i;
+        }
+      }
+
+      sctx.beginPath();
+      for (let i = 0; i < displayBins.length; i++) {
+        const x = getXFromFreq(displayBins[i].freq, maxFreq, w);
+        const v = displayBins[i].db + 20 * Math.log10(Math.max(0.0001, gain));
+        const y = dbToY(v, h, currentDbRange);
+        if (i === 0) sctx.moveTo(x, y);
+        else sctx.lineTo(x, y);
+      }
+      sctx.strokeStyle = '#66d9ef';
+      sctx.lineWidth = 2;
+      sctx.stroke();
+
+      if (peakHoldEnabledEl.checked && peakHoldSpectrum.length === displayBins.length) {
+        let maxPH = -Infinity;
+        lastPeakHoldIndex = 0;
+        sctx.beginPath();
+        for (let i = 0; i < displayBins.length; i++) {
+          const x = getXFromFreq(displayBins[i].freq, maxFreq, w);
+          const v = peakHoldSpectrum[i] + 20 * Math.log10(Math.max(0.0001, gain));
+          const y = dbToY(v, h, currentDbRange);
+          if (i === 0) sctx.moveTo(x, y);
+          else sctx.lineTo(x, y);
+          if (peakHoldSpectrum[i] > maxPH) {
+            maxPH = peakHoldSpectrum[i];
+            lastPeakHoldIndex = i;
+          }
+        }
+        sctx.strokeStyle = 'rgba(255, 209, 102, 0.95)';
+        sctx.lineWidth = 1.5;
+        sctx.stroke();
+        peakHoldFreqEl.textContent = formatFreq(displayBins[lastPeakHoldIndex]?.freq || 0);
+      } else {
+        peakHoldFreqEl.textContent = '-';
+      }
+
+      const peakFreq = displayBins[lastPeakIndex]?.freq || 0;
+      peakFreqEl.textContent = formatFreq(peakFreq);
+      levelEl.textContent = peakValue.toFixed(1) + ' dB';
+
+      const px = getXFromFreq(peakFreq, maxFreq, w);
+      sctx.strokeStyle = '#7CFC00';
+      sctx.beginPath();
+      sctx.moveTo(px, 0);
+      sctx.lineTo(px, h);
+      sctx.stroke();
+
+      drawFreqAxis(sctx, spectrumCanvas, maxFreq, 10);
+      sctx.fillStyle = '#aab3d9';
+      sctx.font = '14px Arial';
+      sctx.fillText('Picco live ' + formatFreq(peakFreq), Math.min(w - 180, px + 8), 18);
+
+      updateCursorInfo(displayBins, maxFreq, currentDbRange);
+      maybeStoreTimeLog(displayBins);
+      maybeStoreWaterfallLog(displayBins, maxFreq);
+      if (cursorState.active) drawCursor(displayBins, maxFreq);
+      drawWaterfall(displayBins, maxFreq, currentDbRange);
+    }
+
+    function drawCursor(displayBins, maxFreq) {
+      const h = spectrumCanvas.height;
+      const x = Math.max(0, Math.min(spectrumCanvas.width, cursorState.x));
+      sctx.strokeStyle = '#ff6b6b';
+      sctx.beginPath();
+      sctx.moveTo(x, 0);
+      sctx.lineTo(x, h);
+      sctx.stroke();
+      const txt = `${formatFreq(cursorState.freq)} | ${cursorState.amp?.toFixed(1) || '-'} dB`;
+      sctx.fillStyle = '#ff6b6b';
+      sctx.font = '13px Arial';
+      sctx.fillText(txt, Math.min(spectrumCanvas.width - 170, x + 8), 36);
+    }
+
+    function drawWaveform() {
+      analyser.getByteTimeDomainData(timeData);
+      const w = waveformCanvas.width;
+      const h = waveformCanvas.height;
+      wctx.clearRect(0, 0, w, h);
+      drawGrid(wctx, waveformCanvas, 4);
+      drawYAxis(wctx, waveformCanvas, 0, 255, 4, '');
+      wctx.beginPath();
+      for (let i = 0; i < timeData.length; i++) {
+        const x = (i / (timeData.length - 1)) * w;
+        const y = (timeData[i] / 255) * h;
+        if (i === 0) wctx.moveTo(x, y);
+        else wctx.lineTo(x, y);
+      }
+      wctx.strokeStyle = '#ffd166';
+      wctx.lineWidth = 2;
+      wctx.stroke();
+      wctx.strokeStyle = '#2a355d';
+      wctx.beginPath();
+      wctx.moveTo(0, h / 2);
+      wctx.lineTo(w, h / 2);
+      wctx.stroke();
+    }
+
+    function exportCsv() {
+      if (!audioCtx || !liveSpectrum.length) {
+        statusText.textContent = 'Nessun dato da esportare';
+        return;
+      }
+      const nyquist = audioCtx.sampleRate / 2;
+      const maxFreq = Math.min(parseFloat(maxFreqEl.value || '5000'), nyquist);
+      const rows = ['freq_hz;level_live_db;level_peak_hold_db'];
+      const maxBin = liveSpectrum.length;
+      for (let i = 0; i < maxBin; i++) {
+        const freq = i * nyquist / freqData.length;
+        if (freq > maxFreq) break;
+        const live = liveSpectrum[i] ?? -120;
+        const ph = peakHoldSpectrum[i] ?? '';
+        rows.push(`${formatCsvNumber(freq, 3)};${formatCsvNumber(live, 3)};${ph === '' ? '' : formatCsvNumber(ph, 3)}`);
+      }
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.download = `piezo_spectrum_${ts}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      statusText.textContent = 'CSV esportato';
+    }
+
+
+    function exportTimeCsv() {
+      if (!timeLogRows.length) {
+        statusText.textContent = 'Nessun log temporale da esportare';
+        return;
+      }
+      const rows = ['timestamp_iso;elapsed_s;tracked_mode;tracked_freq_hz;tracked_level_db;peak_freq_hz;peak_level_db;rms_db'];
+      for (const r of timeLogRows) {
+        rows.push([
+          r.timestamp,
+          formatCsvNumber(r.elapsed_s, 3),
+          r.tracked_mode,
+          formatCsvNumber(r.tracked_freq_hz, 3),
+          formatCsvNumber(r.tracked_level_db, 3),
+          formatCsvNumber(r.peak_freq_hz, 3),
+          formatCsvNumber(r.peak_level_db, 3),
+          formatCsvNumber(r.rms_db, 3)
+        ].join(';'));
+      }
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.download = `piezo_time_log_${ts}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      statusText.textContent = 'CSV temporale esportato';
+    }
+
+    function exportWaterfallCsv() {
+      if (!waterfallLogRows.length || !waterfallLogFreqs.length) {
+        statusText.textContent = 'Nessun waterfall log da esportare';
+        return;
+      }
+      const header = ['timestamp_iso', 'elapsed_s', ...waterfallLogFreqs.map(f => `f_${formatCsvNumber(f, 3)}_hz`)];
+      const rows = [header.join(';')];
+      for (const r of waterfallLogRows) {
+        rows.push([
+          r.timestamp,
+          formatCsvNumber(r.elapsed_s, 3),
+          ...r.levels.map(v => formatCsvNumber(v, 3))
+        ].join(';'));
+      }
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.download = `piezo_waterfall_${waterfallLogFreqs.length}b_${ts}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      statusText.textContent = 'Waterfall CSV esportato';
+    }
+
+    function clearTimeLog() {
+      timeLogRows = [];
+      lastTimeLogMs = 0;
+      updateTimeLogInfo();
+      statusText.textContent = 'Log temporale azzerato';
+    }
+
+    function toggleTimeLog() {
+      timeLogEnabled = !timeLogEnabled;
+      toggleTimeLogBtn.textContent = timeLogEnabled ? 'Stop log temporale' : 'Avvia log temporale';
+      statusText.textContent = timeLogEnabled ? 'Log temporale attivo' : 'Log temporale fermo';
+      lastTimeLogMs = 0;
+      updateTimeLogInfo();
+    }
+
+    function draw() {
+      if (!analyser) return;
+      analyser.fftSize = parseInt(fftSizeEl.value, 10);
+      analyser.smoothingTimeConstant = parseInt(smoothingEl.value, 10) / 100;
+      if (!hold) {
+        if (!freqData || freqData.length !== analyser.frequencyBinCount) freqData = new Uint8Array(analyser.frequencyBinCount);
+        if (!timeData || timeData.length !== analyser.fftSize) timeData = new Uint8Array(analyser.fftSize);
+        drawSpectrum();
+        drawWaveform();
+      }
+      animId = requestAnimationFrame(draw);
+    }
+
+    function updateCursorFromEvent(evt) {
+      const rect = spectrumCanvas.getBoundingClientRect();
+      const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+      cursorState.x = ((clientX - rect.left) / rect.width) * spectrumCanvas.width;
+      cursorState.active = true;
+    }
+
+    spectrumCanvas.addEventListener('mousemove', updateCursorFromEvent);
+    spectrumCanvas.addEventListener('touchstart', (e) => { updateCursorFromEvent(e); e.preventDefault(); }, { passive: false });
+    spectrumCanvas.addEventListener('touchmove', (e) => { updateCursorFromEvent(e); e.preventDefault(); }, { passive: false });
+    spectrumCanvas.addEventListener('mouseleave', () => {
+      cursorState.active = false;
+      cursorInfoEl.textContent = '-';
+    });
+    spectrumCanvas.addEventListener('dblclick', () => {
+      cursorState.active = false;
+      cursorInfoEl.textContent = '-';
+    });
+
+    startBtn.addEventListener('click', startAudio);
+    stopBtn.addEventListener('click', stopAudio);
+    holdBtn.addEventListener('click', () => {
+      hold = !hold;
+      holdBtn.textContent = hold ? 'Hold attivo' : 'Hold';
+    });
+    resetPeakBtn.addEventListener('click', () => {
+      resetPeakHold();
+      statusText.textContent = 'Peak hold resettato';
+    });
+    exportCsvBtn.addEventListener('click', exportCsv);
+    toggleTimeLogBtn.addEventListener('click', toggleTimeLog);
+    exportTimeCsvBtn.addEventListener('click', exportTimeCsv);
+    clearTimeLogBtn.addEventListener('click', clearTimeLog);
+    exportWaterfallCsvBtn.addEventListener('click', exportWaterfallCsv);
+    clearWaterfallLogBtn.addEventListener('click', () => clearWaterfallLog(false));
+    fftSizeEl.addEventListener('change', resetPeakHold);
+    maxFreqEl.addEventListener('change', () => { waterfallImage = null; clearWaterfallLog(true); updateWaterfallLogInfo(); statusText.textContent = 'Waterfall log resettato: frequenza max cambiata'; });
+    autoScaleDbEl.addEventListener('change', () => { waterfallImage = null; });
+    logScaleEl.addEventListener('change', () => { waterfallImage = null; clearWaterfallLog(true); updateWaterfallLogInfo(); statusText.textContent = 'Waterfall log resettato: scala X cambiata'; });
+    minLogFreqEl.addEventListener('change', () => { waterfallImage = null; clearWaterfallLog(true); updateWaterfallLogInfo(); statusText.textContent = 'Waterfall log resettato: frequenza min log cambiata'; });
+    waterfallBandsEl.addEventListener('change', () => { clearWaterfallLog(true); updateWaterfallLogInfo(); statusText.textContent = 'Waterfall log resettato: numero bande cambiato'; });
+
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', listDevices);
+    }
+
+    updateTimeLogInfo();
+    updateWaterfallLogInfo();
+    listDevices();
+  </script>
+</body>
+</html>
